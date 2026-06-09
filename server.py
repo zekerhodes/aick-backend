@@ -13,6 +13,7 @@ from auth import UserIn, UserLogin, TokenResponse, signup_user, login_user, get_
 from routes_assets import router as assets_router
 from routes_master import router as master_router
 from routes_reports import router as reports_router
+from routes_tools import router as tools_router
 from seed import seed_if_empty
 
 app = FastAPI(title='AIC Kapsowar Hospital Asset Management API')
@@ -52,6 +53,7 @@ async def auth_me(user: dict = Depends(get_current_user)):
 # Include routers
 api.include_router(assets_router)
 api.include_router(reports_router)
+api.include_router(tools_router)
 api.include_router(master_router)  # generic CRUD (must come last to avoid conflicting paths)
 
 app.include_router(api)
