@@ -1,6 +1,3 @@
-📄 FILE 2 — routes_assets.py
-Path in your repo: routes_assets.py (at root, next to server.py)
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional, List
 from datetime import datetime
