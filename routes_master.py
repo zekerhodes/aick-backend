@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Body
 from typing import Optional, List
 from datetime import datetime
 import uuid
+from pymongo.errors import DuplicateKeyError
 
 from db import coll
 from auth import get_current_user
@@ -44,15 +45,21 @@ async def list_resource(resource: str, search: Optional[str] = None, user: dict 
     return {'items': items, 'total': len(items)}
 
 
-@router.post('/{resource}')
+  @router.post('/{resource}')
 async def create_resource(resource: str, data: dict = Body(...), user: dict = Depends(get_current_user)):
     if resource not in COLLECTIONS:
         raise HTTPException(404, f'Unknown resource: {resource}')
     if resource == 'transactions':
         raise HTTPException(403, 'Transactions are auto-generated')
+    if not (data.get('name') or '').strip():
+        raise HTTPException(400, 'Name is required')
     data['id'] = data.get('id') or str(uuid.uuid4())
     data['created_at'] = datetime.utcnow()
-    await coll(COLLECTIONS[resource]).insert_one(data)
+    try:
+        await coll(COLLECTIONS[resource]).insert_one(data)
+    except DuplicateKeyError as e:
+        key = next(iter(getattr(e, 'details', {}).get('keyValue', {}) or {}), 'value')
+        raise HTTPException(409, f"A {resource[:-1] if resource.endswith('s') else resource} with this {key} already exists")
     return _clean(data)
 
 
@@ -73,7 +80,11 @@ async def update_resource(resource: str, item_id: str, data: dict = Body(...), u
     data.pop('id', None)
     data.pop('_id', None)
     data['updated_at'] = datetime.utcnow()
-    res = await coll(COLLECTIONS[resource]).update_one({'id': item_id}, {'$set': data})
+    try:
+        res = await coll(COLLECTIONS[resource]).update_one({'id': item_id}, {'$set': data})
+    except DuplicateKeyError as e:
+        key = next(iter(getattr(e, 'details', {}).get('keyValue', {}) or {}), 'value')
+        raise HTTPException(409, f"Another record with this {key} already exists")
     if res.matched_count == 0:
         raise HTTPException(404, 'Not found')
     item = await coll(COLLECTIONS[resource]).find_one({'id': item_id})
