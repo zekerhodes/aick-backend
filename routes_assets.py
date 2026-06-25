@@ -63,7 +63,6 @@ async def list_assets(
 
 @router.post('', response_model=Asset)
 async def create_asset(data: AssetCreate, user: dict = Depends(get_current_user)):
-    # Resolve labels from IDs
     asset = Asset(**data.dict())
     await _resolve_labels(asset)
     doc = asset.dict()
@@ -87,8 +86,8 @@ async def update_asset(asset_id: str, data: AssetUpdate, user: dict = Depends(ge
         raise HTTPException(404, 'Asset not found')
     update = {k: v for k, v in data.dict().items() if v is not None}
     # Re-resolve labels whenever an ID changes so the denormalised label
-    # never goes stale (this prevents the bug where the dropdown updates
-    # category_id but the displayed `category` label keeps the old value).
+    # never goes stale (fixes the bug where the dropdown updates category_id
+    # but the displayed `category` label keeps the old value).
     await _resolve_labels_dict(update, existing)
     update['updated_at'] = datetime.utcnow()
     await coll('assets').update_one({'id': asset_id}, {'$set': update})
@@ -104,7 +103,7 @@ async def delete_asset(asset_id: str, user: dict = Depends(get_current_user)):
     return {'ok': True}
 
 
-# ----- Actions -----
+# ----- Helpers -----
 async def _get_asset_or_404(asset_id: str) -> dict:
     a = await coll('assets').find_one({'id': asset_id})
     if not a:
@@ -113,8 +112,28 @@ async def _get_asset_or_404(asset_id: str) -> dict:
 
 
 async def _resolve_labels(asset: Asset):
-   # Mapping of *_id fields to (label_key, collection_name) so the partial-update
-# endpoint can re-resolve denormalised labels whenever an ID is changed.
+    if asset.category_id and not asset.category:
+        c = await coll('categories').find_one({'id': asset.category_id})
+        if c:
+            asset.category = c['name']
+    if asset.location_id and not asset.location:
+        loc = await coll('locations').find_one({'id': asset.location_id})
+        if loc:
+            asset.location = loc['name']
+    if asset.department_id and not asset.department:
+        d = await coll('departments').find_one({'id': asset.department_id})
+        if d:
+            asset.department = d['name']
+    if asset.vendor_id and not asset.vendor:
+        v = await coll('vendors').find_one({'id': asset.vendor_id})
+        if v:
+            asset.vendor = v['name']
+    if asset.funding_id and not asset.funding_source:
+        f = await coll('funding_sources').find_one({'id': asset.funding_id})
+        if f:
+            asset.funding_source = f['name']
+
+
 _LABEL_RESOLUTION_MAP = {
     'category_id': ('category', 'categories'),
     'location_id': ('location', 'locations'),
@@ -136,6 +155,7 @@ async def _resolve_labels_dict(update: dict, existing: Optional[dict] = None):
                 update[label_field] = None
 
 
+# ----- Actions -----
 @router.post('/{asset_id}/check-out')
 async def check_out(asset_id: str, data: CheckOutIn, user: dict = Depends(get_current_user)):
     a = await _get_asset_or_404(asset_id)
